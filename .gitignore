@@ -1,0 +1,17 @@
+# Virtual environment
+venv/
+
+# Dataset
+dataset/
+images/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Environment files
+.env
+
+# OS files
+.DS_Store
+Thumbs.db
