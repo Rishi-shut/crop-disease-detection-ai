@@ -5,6 +5,9 @@ venv/
 dataset/
 images/
 
+# Model
+models/
+
 # Python cache
 __pycache__/
 *.pyc
@@ -15,3 +18,5 @@ __pycache__/
 # OS files
 .DS_Store
 Thumbs.db
+
+
