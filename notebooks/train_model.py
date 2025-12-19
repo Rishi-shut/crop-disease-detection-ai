@@ -1,21 +1,47 @@
-import os
 import tensorflow as tf
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout
+from tensorflow.keras.layers import (
+    Conv2D,
+    MaxPooling2D,
+    BatchNormalization,
+    GlobalAveragePooling2D,
+    Dense,
+    Dropout
+)
+from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras.optimizers import Adam
 
-# Paths and parameters
+# ==============================
+# CONFIG
+# ==============================
 DATASET_PATH = "dataset/Plant_Village/PlantVillage"
 IMAGE_SIZE = (224, 224)
 BATCH_SIZE = 32
+EPOCHS = 40
+LEARNING_RATE = 1e-4
 
-# Data generator with rescaling
-datagen = ImageDataGenerator(
+# ==============================
+# DATA GENERATORS
+# ==============================
+
+train_datagen = ImageDataGenerator(
+    rescale=1.0 / 255,
+    validation_split=0.2,
+    rotation_range=30,
+    width_shift_range=0.1,
+    height_shift_range=0.1,
+    zoom_range=0.2,
+    horizontal_flip=True,
+    fill_mode="nearest"
+)
+
+val_datagen = ImageDataGenerator(
     rescale=1.0 / 255,
     validation_split=0.2
 )
 
-train_data = datagen.flow_from_directory(
+train_data = train_datagen.flow_from_directory(
     DATASET_PATH,
     target_size=IMAGE_SIZE,
     batch_size=BATCH_SIZE,
@@ -23,7 +49,7 @@ train_data = datagen.flow_from_directory(
     subset="training"
 )
 
-val_data = datagen.flow_from_directory(
+val_data = val_datagen.flow_from_directory(
     DATASET_PATH,
     target_size=IMAGE_SIZE,
     batch_size=BATCH_SIZE,
@@ -31,45 +57,75 @@ val_data = datagen.flow_from_directory(
     subset="validation"
 )
 
-# print("Classes detected:", train_data.class_indices)
-# print("Number of training samples:", train_data.samples)
-# print("Number of validation samples:", val_data.samples)
+NUM_CLASSES = train_data.num_classes
+print("Detected classes:", NUM_CLASSES)
 
-# Build CNN model
+# ==============================
+# MODEL
+# ==============================
+
 model = Sequential([
+    # Block 1
     Conv2D(32, (3, 3), activation="relu", input_shape=(224, 224, 3)),
+    BatchNormalization(),
     MaxPooling2D(2, 2),
 
+    # Block 2
     Conv2D(64, (3, 3), activation="relu"),
+    BatchNormalization(),
     MaxPooling2D(2, 2),
 
+    # Block 3
     Conv2D(128, (3, 3), activation="relu"),
+    BatchNormalization(),
     MaxPooling2D(2, 2),
 
-    Flatten(),
+    # Feature aggregation
+    GlobalAveragePooling2D(),
 
+    # Classifier
     Dense(128, activation="relu"),
-    Dropout(0.5),
+    Dropout(0.4),
 
-    Dense(train_data.num_classes, activation="softmax")
+    Dense(NUM_CLASSES, activation="softmax")
 ])
 
+model.summary()
+
+# ==============================
+# COMPILE
+# ==============================
+
 model.compile(
-    optimizer="adam",
+    optimizer=Adam(learning_rate=LEARNING_RATE),
     loss="categorical_crossentropy",
     metrics=["accuracy"]
 )
-model.summary()
 
-# Train the model
-EPOCHS = 10
+# ==============================
+# CALLBACKS
+# ==============================
+
+early_stop = EarlyStopping(
+    monitor="val_loss",
+    patience=5,
+    restore_best_weights=True
+)
+
+# ==============================
+# TRAIN
+# ==============================
 
 history = model.fit(
     train_data,
     validation_data=val_data,
-    epochs=EPOCHS
+    epochs=EPOCHS,
+    callbacks=[early_stop]
 )
 
-# Save the trained model
-model.save("models/crop_disease_model.h5")
+# ==============================
+# SAVE MODEL
+# ==============================
+
+model.save("models/crop_disease_custom_cnn.h5")
 print("Model saved successfully!")
