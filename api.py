@@ -1,10 +1,12 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, HTTPException
 import tensorflow as tf
 import numpy as np
 import os
 from PIL import Image
 import cv2
 from remedies import REMEDIES
+import base64
+from io import BytesIO
 
 # ----------------- INIT APP -----------------
 app = FastAPI(title="Crop Disease Detection API")
@@ -15,6 +17,10 @@ model = tf.keras.models.load_model("models/crop_disease_model.h5")
 # ----------------- CLASS NAMES -----------------
 DATASET_PATH = "dataset/Plant_Village/PlantVillage"
 class_names = sorted(os.listdir(DATASET_PATH))
+
+# ----------------- CONSTANTS -----------------
+ALLOWED_TYPES = ["image/jpeg", "image/png" ,"image/jpg"]
+MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
 
 # ----------------- IMAGE PREPROCESS -----------------
 def preprocess_image(img: Image.Image):
@@ -34,6 +40,7 @@ def estimate_severity(pil_img):
     upper = np.array([30, 255, 255])
 
     mask = cv2.inRange(hsv, lower, upper)
+
     infected_area = cv2.countNonZero(mask)
     total_area = mask.shape[0] * mask.shape[1]
     severity = (infected_area / total_area) * 100
@@ -45,7 +52,11 @@ def estimate_severity(pil_img):
     else:
         level = "Severe"
 
-    return severity, level
+    # Encode mask as Base64
+    _, buffer = cv2.imencode(".png", mask)
+    mask_base64 = base64.b64encode(buffer).decode("utf-8")
+
+    return severity, level, mask_base64
 
 # ----------------- ROOT ENDPOINT -----------------
 @app.get("/")
@@ -55,8 +66,19 @@ def root():
 # ----------------- PREDICT ENDPOINT -----------------
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
-    # Read image
-    image = Image.open(file.file).convert("RGB")
+    # Validate file type
+    if file.content_type not in ALLOWED_TYPES:
+        raise HTTPException(status_code=400, detail="Invalid file type")
+
+    # Read file
+    contents = await file.read()
+
+    # Validate file size
+    if len(contents) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=400, detail="File too large (max 5MB)")
+
+    # Load image
+    image = Image.open(BytesIO(contents)).convert("RGB")
 
     # Prediction
     input_img = preprocess_image(image)
@@ -65,8 +87,8 @@ async def predict(file: UploadFile = File(...)):
     confidence = float(np.max(preds) * 100)
     disease = class_names[pred_index]
 
-    # Severity
-    severity, level = estimate_severity(image)
+    # Severity + mask
+    severity, level, mask_b64 = estimate_severity(image)
 
     # Remedies
     remedies = REMEDIES.get(disease, {})
@@ -76,5 +98,6 @@ async def predict(file: UploadFile = File(...)):
         "confidence": round(confidence, 2),
         "severity_percent": round(severity, 2),
         "severity_level": level,
+        "mask": mask_b64,
         "remedies": remedies
     }
